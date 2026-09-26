@@ -6,12 +6,23 @@ let
   toolboxDir = ./.;
   get-path = src: f: let local = src + "/.nix/${f}"; in
     if pathExists local then local else ./. + "/.nix/${f}";
+
+  optionalImport = f: d:
+    if (isPath f || isString f) && pathExists f then import f else d;
+  optionalImportWithArgs =
+    file: args: d:
+    let
+      f = optionalImport file d;
+      fargs = builtins.functionArgs f;
+    in
+    if builtins.isFunction f then f (builtins.intersectAttrs fargs args) else f;
 in
 {
   src ? ./., # provide the current directory
   config-file ? get-path src "config.nix",
   fallback-file ? get-path src "fallback-config.nix",
   nixpkgs-file ? get-path src "nixpkgs.nix",
+  nixpkgs ? optionalImport nixpkgs-file (throw "cannot find nixpkgs"),
   shellHook-file ? get-path src "shellHook.sh",
   overlays-dir ? get-path src "overlays",
   rocq-overlays-dir ? get-path src "rocq-overlays",
@@ -33,15 +44,6 @@ in
   system ? builtins.currentSystem,
 }@args:
 let
-  optionalImport = f: d:
-    if (isPath f || isString f) && pathExists f then import f else d;
-  optionalImportWithArgs =
-    file: args: d:
-    let
-      f = optionalImport file d;
-      fargs = builtins.functionArgs f;
-    in
-    if builtins.isFunction f then f (builtins.intersectAttrs fargs args) else f;
   do-nothing = (args.do-nothing or false) || update-nixpkgs || ci-matrix;
   unNull = default: value: if isNull value then default else value;
   fallback-config = optionalImportWithArgs fallback-file {
@@ -50,7 +52,7 @@ let
   initial = {
     config = (optionalImport config-file fallback-config)
               // config;
-    nixpkgs = optionalImport nixpkgs-file (throw "cannot find nixpkgs");
+    inherit nixpkgs;
     pkgs = import initial.nixpkgs {
       inherit system;
     };
